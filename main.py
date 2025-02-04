@@ -1,7 +1,12 @@
+from custom_credentials import OUPUT_DIR, TEMPLATE_PATH, SERVICE_ACCOUNT_FILE, SCOPES, SPREADSHEET_ID, RANGE_NAME
+from custom_credentials import SENDER_EMAIL, SENDER_PASSWORD, SUBJECT, EMAIL_BODY, FONT_PATH
+
 import os
 import json
 import time
 import textwrap
+import mimetypes
+import base64
 
 from PIL import Image ,ImageDraw ,ImageFont
 import smtplib
@@ -12,18 +17,6 @@ from email.mime.multipart import MIMEMultipart
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build  # Required for Google Sheets API
 
-
-
-
-SERVICE_ACCOUNT_FILE="add your service account file"
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-SPREADSHEET_ID="1HBfvTrs2gK-hiW5ylc-4O-Wu_CW1GOSPezih_mQO_2Q"
-RANGE_NAME = "Sheet1!A1:Z100"
-
-# Email Details (Sender)
-SENDER_EMAIL = "your email"
-SENDER_PASSWORD = "your app password"  # Use app password
-SUBJECT = "Welcome to the Team!"
 
 
 """ ~~~~ GETs the Sheet data into our program ~~~~ """
@@ -115,60 +108,51 @@ def generate_welcome_image(record, template_path, output_dir ,font_path ,font_si
 
 """ ~~~~~~~~~~ Sends the welcome email to the respective intern  ~~~~~~~~~~~~~ """
 
-def send_welcome_email(sender_email ,sender_password ,intern_email ,subject ,intern_name ,attachment_path):
-    """
-    Sends an email with an attached image to the intern.
 
-    Args:
-        sender_email (str): The sender's email address.
-        sender_password (str): The sender's email password or app-specific password.
-        intern_email (str): The recipient's email address.
-        subject (str): The subject of the email.
-        body (str): The body of the email.
-        attachment_path (str): Path to the attachment (welcome image).
+# Scopes for Gmail API
+
+
+def send_welcome_email(sender_email, sender_password, intern_email, subject, intern_name, attachment_path):
+    """
+    Sends an email with an inline welcome image to the intern.
     """
     try:
-
         # Set up the email
-        msg = MIMEMultipart()
+        msg = MIMEMultipart("related")
         msg['From'] = sender_email
         msg['To'] = intern_email
         msg['Subject'] = subject
 
-        # Add body to the email
-        body = textwrap.dedent(f"""\
-                Hi {intern_name},
+        # Email body with inline image reference using CID
+        body = EMAIL_BODY.format(intern_name)
 
-                Welcome to the team! We are excited to have you onboard. 
-                Please find your welcome image attached.
+        msg.attach(MIMEText(body, "html"))
 
-                Best Regards,  
-                SpectoV
-                """)
-        msg.attach(MIMEText(body ,'plain'))
+        # Attach image as a separate MIME part
+        with open(attachment_path, "rb") as img_file:
+            mime_type, _ = mimetypes.guess_type(attachment_path)
+            mime_type = mime_type or "image/png"  # Default to PNG if unknown
 
-        # Attach the welcome image
-        with open(attachment_path ,'rb') as attachment:
-            part = MIMEBase('application' ,'octet-stream')
-            part.set_payload(attachment.read())
-        encoders.encode_base64(part)
-        part.add_header(
-            'Content-Disposition' ,
-            f'attachment; filename={os.path.basename(attachment_path)}'
-        )
-        msg.attach(part)
+            image_part = MIMEBase("image", mime_type.split("/")[1])
+            image_part.set_payload(img_file.read())
+
+        encoders.encode_base64(image_part)
+        image_part.add_header("Content-Disposition", "inline", filename="welcome_image.png")
+        image_part.add_header("Content-ID", "<image1>")
+        image_part.add_header("X-Attachment-Id", "image1")
+
+        msg.attach(image_part)
 
         # Connect to the mail server
-        with smtplib.SMTP('smtp.gmail.com' ,587) as server:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()  # Start TLS encryption
-            server.login(sender_email ,sender_password)  # Login
-            server.sendmail(sender_email ,intern_email ,msg.as_string())  # Send email
+            server.login(sender_email, sender_password)  # Login
+            server.sendmail(sender_email, intern_email, msg.as_string())  # Send email
 
         print(f"Email sent successfully to {intern_email}!")
 
     except Exception as e:
         print(f"Failed to send email to {intern_email}. Error: {e}")
-
 
 
 """~~~~~~~~~~~~~~~ MONITOR RECORDS ~~~~~~~~~~~~~~~"""
@@ -183,9 +167,9 @@ def monitor_and_send_email(previous_data):
 
         # Check if all required fields are filled
         if all(field in new_intern and new_intern[field] for field in required_fields):
-            template_path = "welcome_template (1).png"
-            output_dir = "intern_welcome_images/"
-            font_path = "SFMono-Light.otf"
+            template_path = TEMPLATE_PATH
+            output_dir = OUPUT_DIR
+            font_path = FONT_PATH
             attachment_path = generate_welcome_image(new_intern ,template_path ,output_dir ,font_path)
 
             # Send welcome email
@@ -208,9 +192,9 @@ def run():
     # Continuously monitor for new rows
     while True:
         previous_data = monitor_and_send_email(previous_data)
-        time.sleep(60)  # Check every minute for new rows
+        time.sleep(30)  # Check 1/2 minute for new rows
 
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     run()
